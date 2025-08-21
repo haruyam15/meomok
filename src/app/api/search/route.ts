@@ -1,11 +1,15 @@
-// src/app/api/search/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import ngeohash from 'ngeohash';
 import { supabaseServer } from '@/lib/supabase-server';
-import type { KakaoPlace, GooglePlace, PlaceUpsertInput } from '@/types/place';
+import type {
+  KakaoPlace,
+  GooglePlace,
+  PlaceUpsertInput,
+  PlaceSearchRow,
+} from '@/types/place';
 
-const TTL_MS = 1000 * 60 * 60 * 6; // 6시간
-const GH_PREC = 7; // ~150m 타일
+const TTL_MS = 1000 * 60 * 60 * 6;
+const GH_PREC = 7;
 
 type RequestBody = {
   lat: number;
@@ -13,16 +17,13 @@ type RequestBody = {
   radius?: number;
   query?: string;
   force?: boolean;
+  limit?: number;
+  // 커서(지난 페이지의 마지막 항목)
+  lastDistance?: number | null;
+  lastId?: string | null;
 };
 
-type ApiSearchResponse = {
-  places?: unknown[]; // 실제 행 타입이 있다면 PlaceSearchRow[]로 교체
-  cacheTile?: string;
-  fetched?: boolean;
-  error?: string;
-};
-
-const CUISINE = (s: string): string[] => {
+const CUISINE = (s: string) => {
   const t = (s || '').toLowerCase();
   const a: string[] = [];
   if (/한식|korean/.test(t)) a.push('korean');
@@ -33,11 +34,7 @@ const CUISINE = (s: string): string[] => {
   return a.length ? a : ['western'];
 };
 
-async function shouldFetch(
-  lat: number,
-  lng: number,
-  radius: number
-): Promise<{ tile: string; needFetch: boolean }> {
+async function shouldFetch(lat: number, lng: number, radius: number) {
   const tile = ngeohash.encode(lat, lng, GH_PREC);
   const { data } = await supabaseServer
     .from('place_fetch_cache')
@@ -45,14 +42,13 @@ async function shouldFetch(
     .eq('tile_id', tile)
     .eq('radius_m', radius)
     .maybeSingle();
-
   const fresh =
     !!data &&
     Date.now() - new Date(data.fetched_at as string).getTime() < TTL_MS;
   return { tile, needFetch: !fresh };
 }
 
-async function upsertPlace(p: PlaceUpsertInput): Promise<void> {
+async function upsertPlace(p: PlaceUpsertInput) {
   const { error } = await supabaseServer.from('place').upsert(
     {
       source: p.source,
@@ -60,7 +56,7 @@ async function upsertPlace(p: PlaceUpsertInput): Promise<void> {
       name: p.name,
       address: p.address ?? null,
       phone: p.phone ?? null,
-      location: `SRID=4326;POINT(${p.lng} ${p.lat})`, // geography(Point,4326) WKT
+      location: `SRID=4326;POINT(${p.lng} ${p.lat})`,
       cuisines: p.cuisines,
       price_level: p.price_level ?? null,
       rating_avg: p.rating_avg ?? null,
@@ -73,13 +69,10 @@ async function upsertPlace(p: PlaceUpsertInput): Promise<void> {
   if (error) throw error;
 }
 
-// 응답이 JSON이 아닐 수도 있으므로 안전 파서
 async function safeJson<T>(res: Response): Promise<T | null> {
   try {
     return (await res.json()) as T;
   } catch {
-    const text = await res.text();
-    console.error('Non-JSON response', res.status, text.slice(0, 200));
     return null;
   }
 }
@@ -92,48 +85,45 @@ export async function POST(req: NextRequest) {
       radius = 1000,
       query = '음식점',
       force = false,
+      limit: rawLimit,
+      lastDistance = null,
+      lastId = null,
     } = (await req.json()) as RequestBody;
+
+    const limit = Math.min(Math.max(rawLimit ?? 30, 1), 200);
 
     const { tile, needFetch } = await shouldFetch(lat, lng, radius);
 
-    let mustFetch: boolean = force || needFetch;
+    // DB가 비어있으면 강제 수집
+    let mustFetch = force || needFetch;
     if (!mustFetch) {
-      const probe = await supabaseServer.rpc('search_places', {
-        lat,
-        lng,
-        radius_m: radius,
-        cuisines_filter: [],
-        price_band: '',
-        sort_by: 'distance',
-        limit_n: 1,
-        offset_n: 0,
+      const probe = await supabaseServer.rpc('search_places_cursor', {
+        in_lat: lat,
+        in_lng: lng,
+        in_radius_m: radius,
+        in_last_distance_m: null,
+        in_last_place_id: null,
+        in_limit_n: 1,
       });
       if (!probe.error && (probe.data?.length ?? 0) === 0) mustFetch = true;
     }
 
     if (mustFetch) {
-      // Kakao
-      const kakaoRes: Response = await fetch(
+      // Kakao(1페이지만; 필요시 반복수집 추가 가능)
+      const kakaoRes = await fetch(
         `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(
           query
-        )}&x=${lng}&y=${lat}&radius=${radius}&size=12`,
+        )}&x=${lng}&y=${lat}&radius=${radius}&size=15&page=1`,
         {
           headers: {
             Authorization: `KakaoAK ${process.env.KAKAO_REST_API_KEY}`,
           },
         }
       );
-
-      let kakaoDocs: KakaoPlace[] = [];
-      if (kakaoRes.ok) {
-        const kakao = await safeJson<{ documents?: KakaoPlace[] }>(kakaoRes);
-        kakaoDocs = kakao?.documents ?? [];
-      } else {
-        const text = await kakaoRes.text();
-        console.error('Kakao error', kakaoRes.status, text.slice(0, 200));
-      }
-
-      for (const k of kakaoDocs) {
+      const kakao = kakaoRes.ok
+        ? await safeJson<{ documents?: KakaoPlace[] }>(kakaoRes)
+        : null;
+      for (const k of kakao?.documents ?? []) {
         await upsertPlace({
           source: 'kakao',
           source_place_id: k.id,
@@ -150,8 +140,8 @@ export async function POST(req: NextRequest) {
         });
       }
 
-      // Google
-      const googleRes: Response = await fetch(
+      // Google(1페이지만)
+      const gRes = await fetch(
         'https://places.googleapis.com/v1/places:searchNearby',
         {
           method: 'POST',
@@ -163,26 +153,19 @@ export async function POST(req: NextRequest) {
           },
           body: JSON.stringify({
             includedTypes: ['restaurant'],
-            maxResultCount: 15,
             rankPreference: 'DISTANCE',
             languageCode: 'ko',
+            maxResultCount: 20,
             locationRestriction: {
               circle: { center: { latitude: lat, longitude: lng }, radius },
             },
           }),
         }
       );
-
-      let googlePlaces: GooglePlace[] = [];
-      if (googleRes.ok) {
-        const google = await safeJson<{ places?: GooglePlace[] }>(googleRes);
-        googlePlaces = google?.places ?? [];
-      } else {
-        const text = await googleRes.text();
-        console.error('Google error', googleRes.status, text.slice(0, 200));
-      }
-
-      for (const g of googlePlaces) {
+      const google = gRes.ok
+        ? await safeJson<{ places?: GooglePlace[] }>(gRes)
+        : null;
+      for (const g of google?.places ?? []) {
         await upsertPlace({
           source: 'google',
           source_place_id: g.id,
@@ -209,37 +192,35 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 최종 조회
-    const { data, error } = await supabaseServer.rpc('search_places', {
-      lat,
-      lng,
-      radius_m: radius,
-      cuisines_filter: [],
-      price_band: '',
-      sort_by: 'distance',
-      limit_n: 50,
-      offset_n: 0,
+    // === 커서 기반 최종 조회 ===
+    const { data, error } = await supabaseServer.rpc('search_places_cursor', {
+      in_lat: lat,
+      in_lng: lng,
+      in_radius_m: radius,
+      in_last_distance_m: lastDistance,
+      in_last_place_id: lastId,
+      in_limit_n: limit,
     });
+    if (error)
+      return NextResponse.json({ error: error.message }, { status: 500 });
 
-    if (error) {
-      console.error('search_places error', error.message);
-      return NextResponse.json<ApiSearchResponse>(
-        { error: error.message },
-        { status: 500 }
-      );
-    }
+    const rows = (data ?? []) as PlaceSearchRow[];
+    const hasMore = rows.length === limit;
+    const nextCursor = rows.length
+      ? {
+          lastDistance: rows[rows.length - 1].distance_m,
+          lastId: rows[rows.length - 1].place_id,
+        }
+      : null;
 
-    return NextResponse.json<ApiSearchResponse>({
-      places: data ?? [],
+    return NextResponse.json({
+      places: rows,
       cacheTile: tile,
       fetched: mustFetch,
+      hasMore,
+      nextCursor,
     });
   } catch (e) {
-    const message = e instanceof Error ? e.message : String(e);
-    console.error('route /api/search fatal', message);
-    return NextResponse.json<ApiSearchResponse>(
-      { error: 'Internal error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal error' }, { status: 500 });
   }
 }

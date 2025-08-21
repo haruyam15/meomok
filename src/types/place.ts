@@ -56,3 +56,5 @@ export interface ApiSearchResponse {
   fetched?: boolean;
   error?: string;
 }
+
+export type Cursor = { lastDistance: number; lastId: string } | null;
