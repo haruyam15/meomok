@@ -1,0 +1,48 @@
+name: 🔧 fix
+description: 코드에서 발견된 문제나 버그를 해결합니다.
+title: '[🔧 fix] '
+labels: ['🔧 fix']
+body:
+  - type: textarea
+    id: fix-description
+    attributes:
+      label: 📄 설명
+      description: |
+       발생한 버그와 수정한 사항에 대해 설명을 자세히 작성해 주세요.
+       - 
+      placeholder:
+    validations:
+      required: true
+  - type: textarea
+    id: fix-tasks
+    attributes:
+      label: 🔨 ⚙️ Fix Tasks
+      description: |
+       Fix Tasks를 최대한 세분화해서 작성해 주세요.
+       - [ ] 체크박스
+      placeholder:
+    validations:
+      required: true
+  - type: textarea
+    id: bug-log
+    attributes:
+      label: 📄 로그
+      description: 로그가 있다면 작성해 주세요.
+    validations:
+      required: false
+  - type: textarea
+    id: bug-os
+    attributes:
+      label: 🌏 환경
+      description: 버그가 발생한 환경에 대해 작성해 주세요.
+      placeholder: |
+        OS: macOS 14.5
+    validations:
+      required: false
+  - type: textarea
+    id: fix-more
+    attributes:
+      label: 📝 메모
+      description: 더 하고 싶은 말이 있다면 작성해 주세요.
+    validations:
+      required: false

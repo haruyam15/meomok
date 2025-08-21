@@ -1,0 +1,32 @@
+name: ⚙️ chore
+description: 빌드, 패키지, 설정 파일, 환경 변수 등 기능/버그 수정 외의 잡일을 수행합니다.
+title: '[⚙️ chore] '
+labels: ['⚙️ chore']
+body:
+  - type: textarea
+    id: chore-description
+    attributes:
+      label: 📄 설명
+      description: | 
+       작업에 대한 설명을 자세히 작성해 주세요.
+       - 
+      placeholder:
+    validations:
+      required: true
+  - type: textarea
+    id: chore-tasks
+    attributes:
+      label: ⚙️ Chore Tasks
+      description: | 
+       Chore Tasks를 최대한 세분화해서 작성해 주세요.
+       - [ ] 체크박스
+      placeholder:
+    validations: 
+      required: true
+  - type: textarea
+    id: chore-more
+    attributes:
+      label: 📝 메모
+      description: 더 하고 싶은 말이 있다면 작성해 주세요.
+    validations:
+      required: false

@@ -1,0 +1,32 @@
+name: ♻️ refactor
+description: 기능이나 동작을 변경하지 않고 코드의 구조를 개선하거나 가독성을 높이는 작업을 합니다.
+title: '[♻️ refactor] '
+labels: ['♻️ refactor']
+body:
+  - type: textarea
+    id: refactor-description
+    attributes:
+      label: 📄 설명
+      description: |
+       리팩토링 대상과 리팩토링이 필요한 이유를 작성해 주세요.
+       - 
+      placeholder:
+    validations:
+      required: true
+  - type: textarea
+    id: refactor-tasks
+    attributes:
+      label: ♻️ 리팩토링 Tasks
+      description: |
+       리팩토링에 대한 Tasks를 최대한 세분화해서 작성해 주세요.
+       - [ ] 체크박스
+      placeholder:
+    validations:
+      required: true
+  - type: textarea
+    id: refactor-more
+    attributes:
+      label: 📝 메모
+      description: 더 하고 싶은 말이 있다면 작성해 주세요.
+    validations:
+      required: false

@@ -1,0 +1,32 @@
+name: 📜 docs
+description: 프로젝트 문서를 작성하거나 수정합니다.
+title: '[📜 docs] '
+labels: ['📜 docs']
+body:
+  - type: textarea
+    id: docs-description
+    attributes:
+      label: 📄 설명
+      description: |
+       문서에 대한 설명을 자세히 작성해 주세요.
+       - 
+      placeholder:
+    validations:
+      required: true
+  - type: textarea
+    id: docs-simulation
+    attributes:
+      label: Docs Tasks
+      description: |
+       Docs Tasks를 최대한 세분화해서 작성해 주세요.
+       - [ ] 체크박스
+      placeholder:
+    validations:
+      required: true
+  - type: textarea
+    id: docs-more
+    attributes:
+      label: 📝 메모
+      description: 더 하고 싶은 말이 있다면 작성해 주세요.
+    validations:
+      required: false
